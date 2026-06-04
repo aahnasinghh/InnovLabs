@@ -1,14 +1,27 @@
 import React from "react";
-import ELNWorkflowCanvas from "./components/ELNWorkflowCanvas.jsx";
+import PipelinesCanvas from "./components/PipelinesCanvas.jsx";
 
 /**
- * App shell.
+ * App shell — PREVIEW ONLY.
  *
- * The canvas is designed to fill the full viewport, so we render it directly.
- * [BACKEND] In the full InnovLabs platform this would live inside the
- * authenticated dashboard layout (nav, experiment context, user session),
- * and the active workflow id would be passed down as a prop.
+ * Renders the standalone <PipelinesCanvas /> during local development so you
+ * can see it in the browser (npm run dev). The component itself has no
+ * dependency on this file — to use it in the real InnovLabs app, just:
+ *     import PipelinesCanvas from "./components/PipelinesCanvas";
+ *     <PipelinesCanvas />
  */
 export default function App() {
-  return <ELNWorkflowCanvas />;
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        width: "100%",
+        background: "#f1f5f9",
+        padding: "32px 16px",
+        boxSizing: "border-box",
+      }}
+    >
+      <PipelinesCanvas />
+    </div>
+  );
 }
