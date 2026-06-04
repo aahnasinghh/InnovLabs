@@ -1,65 +1,58 @@
-# InnovLabs — ELN Workflow Canvas
+# InnovLabs — Pipelines Canvas
 
-A visual, drag-and-drop **workflow canvas** for the InnovLabs AI platform — an
-AI-powered Electronic Lab Notebook (ELN) and scientific discovery tool. This
-canvas lets researchers compose experiment, data, AI-analysis, and reporting
-pipelines visually, similar in spirit to Dagster-style data graphs and tools
-like Chemflow.
+A minimal, reusable **data-pipeline canvas** for the InnovLabs AI platform — an
+AI-powered Electronic Lab Notebook (ELN) and scientific discovery tool. The
+canvas lets researchers visually build simple pipeline graphs (e.g.
+`Dataset → Process → AI Analysis → Chart → Export`) that can later be embedded
+inside an ELN section.
 
 > **Status:** front-end UI prototype. It is intentionally **not** wired to a
-> backend yet. Code comments marked `// [BACKEND]` indicate where InnovLabs
-> APIs, dashboard data, and persistence would later plug in.
-
-![ELN Workflow Canvas](./public/favicon.svg)
+> backend. Code comments marked `// [INTEGRATION]` indicate where InnovLabs
+> services (backend save API, Dagster execution, Data Hub datasets) would
+> later plug in.
 
 ---
 
 ## Overview
 
-The ELN Workflow Canvas provides an interactive, node-based editor where each
-node represents a step in a research workflow (protocol design, data capture,
-AI analysis, charting, reporting, and more). Nodes can be dragged, connected,
-inspected, and assigned a lifecycle status. A right-side inspector surfaces
-contextual details and **suggested UX actions** for each step.
+`PipelinesCanvas` is a single, self-contained React component built with
+[react-konva](https://konvajs.org/docs/react/). It renders an interactive
+canvas where each node represents a step in a data pipeline. Nodes can be
+added, named, dragged, connected, selected, and deleted. The component is
+designed to be copied/imported into the real InnovLabs app and dropped into a
+notebook page.
 
 ## Purpose
 
-Scientific workflows are often spread across spreadsheets, disconnected tools,
-and manual hand-offs. This canvas demonstrates how InnovLabs can deliver:
-
-- **Less clutter** — one visual surface for the whole experiment lifecycle.
-- **Fewer clicks** — templates, auto-connected datasets, and one-click status.
-- **Clearer workflows** — explicit left-to-right flow with live connectors.
-- **Better data/chart organization** — analysis flows directly into charts and
-  exportable reports.
+Scientific data work is often spread across disconnected tools and manual
+hand-offs. This canvas demonstrates a clean, low-clutter way to compose and
+visualize a pipeline graph directly inside the ELN — fewer clicks, clearer
+flow, and an obvious place to later attach datasets, execution, and outputs.
 
 ## Technologies Used
 
-| Layer        | Technology                          |
-| ------------ | ----------------------------------- |
-| UI library   | [React 18](https://react.dev)       |
-| Build tool   | [Vite 5](https://vitejs.dev)        |
-| Canvas       | [Konva](https://konvajs.org) + [react-konva](https://konvajs.org/docs/react/) |
-| Styling      | Inline styles + a small global CSS reset (no CSS framework) |
-| Language     | JavaScript (JSX) — no TypeScript    |
+| Layer      | Technology                                                              |
+| ---------- | ----------------------------------------------------------------------- |
+| UI library | [React 18](https://react.dev)                                           |
+| Build tool | [Vite 5](https://vitejs.dev)                                            |
+| Canvas     | [Konva](https://konvajs.org) + [react-konva](https://konvajs.org/docs/react/) |
+| Styling    | Inline styles only (no CSS framework)                                   |
+| Language   | JavaScript (JSX) — no TypeScript                                        |
 
 ## Features
 
-- 🧩 **Drag-and-drop nodes** for 8 ELN step types:
-  Protocol Design, Data Capture, Materials & Reagents, Sample Tracking,
-  AI Analysis, Chart Generation, Review & Sign, Report Export.
-- 🎴 **Clean node cards** with title, subtitle, emoji icon, color-coded accent,
-  and a status badge (`Draft` · `Ready` · `Running` · `Complete`).
-- 🔗 **Live connectors** — arrows recompute automatically as nodes are dragged.
-- 🧰 **Left toolbar** to add nodes (Protocol / Data / Analysis / Chart and more)
-  and clear the canvas. New nodes auto-link into the flow.
-- 🔍 **Zoom & pan** — Zoom In / Zoom Out / Reset View controls plus
-  zoom-to-pointer on mouse wheel and click-drag panning.
-- 🪟 **Right inspector** — shows the selected node's title, type, status,
-  description, and a suggested UX action. Click the status to cycle it.
-- 📊 **Workflow summary** — live counts of steps, connections, and statuses.
-- 🌱 **Seeded default flow:**
-  `Protocol Design → Data Capture → AI Analysis → Chart Generation → Report Export`.
+- 🟦 **Draggable nodes** — small rounded blocks that show only their name.
+- 🔗 **Live connector arrows** — recompute automatically as nodes are dragged.
+- 🧰 **Minimal toolbar** — Add Node · Connect Mode · Clear · Zoom In · Zoom Out
+  · Reset View.
+- 🔌 **Connect Mode** — click a source node, then a target node, to wire them.
+- 🎯 **Selection** — click a node to select it (teal border + soft teal fill).
+- 🪟 **Inspector** — shows the selected node's name (editable / rename), X/Y
+  position, connected nodes, and a Delete action.
+- 📊 **Summary row** — node count, connection count, selected node, and current
+  mode (Edit / Connect).
+- 🧭 **Canvas UX** — large dotted-grid workspace, scroll-to-zoom, drag-to-pan.
+- 🌱 **Seeded default graph:** `Dataset → Process → AI Analysis → Chart → Export`.
 
 ## Project Structure
 
@@ -73,11 +66,14 @@ InnovLabs/
 │   └── favicon.svg
 └── src/
     ├── main.jsx             # React entry point
-    ├── App.jsx              # App shell
-    ├── index.css            # Global reset
+    ├── App.jsx              # preview-only wrapper (renders the canvas)
+    ├── index.css            # global reset
     └── components/
-        └── ELNWorkflowCanvas.jsx   # The canvas (self-contained)
+        └── PipelinesCanvas.jsx   # the standalone canvas component
 ```
+
+> `App.jsx` exists only to preview the component during local development.
+> The component itself has no dependency on it.
 
 ## Run Locally
 
@@ -98,18 +94,25 @@ npm run build     # production build into dist/
 npm run preview   # preview the production build locally
 ```
 
+## Reusing the Component
+
+```jsx
+import PipelinesCanvas from "./components/PipelinesCanvas";
+
+function NotebookPipelinesSection() {
+  return <PipelinesCanvas />;
+}
+```
+
 ## Future Improvements
 
-- **Backend integration** — persist workflows via InnovLabs APIs
-  (load/save workflow documents, PATCH step status, trigger AI runs).
-- **Edge editing** — draw/delete connectors interactively instead of
-  auto-linking.
-- **Custom node config** — per-node parameters, attachments, and validation.
-- **Real-time collaboration** — multi-user editing and presence.
-- **Templates & library** — reusable protocol/workflow templates.
-- **Auth & dashboard** — embed inside the authenticated InnovLabs dashboard
-  with experiment context.
-- **Export** — generate PDF / shareable reports from a completed workflow.
+- **Backend save API** — serialize `{ nodes, edges }` and persist per notebook.
+- **Dagster execution** — trigger runs for a pipeline graph and map nodes to
+  ops/assets.
+- **Data Hub integration** — back dataset nodes with real dataset references.
+- **Chart Gallery output** — link chart nodes to generated visualizations.
+- **Edge editing** — delete/redirect connectors interactively.
+- **Auto-layout** — tidy/auto-arrange a graph left-to-right.
 
 ## License
 
