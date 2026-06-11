@@ -1,9 +1,9 @@
 {
-  "name": "innovlabs-eln-workflow-canvas",
+  "name": "innovlabs-reaction-setup-canvas",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "InnovLabs AI — visual ELN workflow canvas prototype built with React, Vite, and react-konva.",
+  "description": "InnovLabs AI — pictorial chemical reaction setup designer built with React, Vite, and Fabric.js.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -11,10 +11,8 @@
   },
   "dependencies": {
     "fabric": "^7.4.0",
-    "konva": "^9.3.16",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-konva": "^18.2.10"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
