@@ -178,7 +178,7 @@ const A = {
 /* ============================================================================
  * ASSEMBLY MATH
  * ==========================================================================*/
-const SNAP_DIST = 36;
+const SNAP_DIST = 42;
 const byId = (canvas, id) => canvas.getObjects().find((o) => o.meta && o.meta.id === id);
 
 function anchorsWorld(obj) {
@@ -277,6 +277,70 @@ const DND_MIME = "application/x-apparatus";
 const DND_SMART = "application/x-smart";
 const SEL = { cornerColor: T.teal, cornerStyle: "circle", borderColor: T.teal, transparentCorners: false, cornerSize: 10, padding: 2 };
 
+/* ============================================================================
+ * SUBTLE WORKSPACE GRID — clean light background, no scenery.
+ * ==========================================================================*/
+function mountGrid(canvas, gridBgRef, indicatorRef, guideRef, gridOn, w, h) {
+  if (!canvas) return;
+  if (gridBgRef.current) canvas.remove(gridBgRef.current);
+  canvas.backgroundColor = "#fafbfc";
+  if (gridOn) {
+    const parts = [];
+    const stroke = "rgba(148,163,184,0.1)";
+    const step = 32;
+    for (let x = 0; x <= w; x += step) parts.push(new Line([x, 0, x, h], { stroke, selectable: false, evented: false }));
+    for (let y = 0; y <= h; y += step) parts.push(new Line([0, y, w, y], { stroke, selectable: false, evented: false }));
+    const g = new Group(parts, { selectable: false, evented: false, hoverCursor: "default" });
+    g.meta = { kind: "grid" };
+    canvas.add(g);
+    canvas.sendObjectToBack(g);
+    gridBgRef.current = g;
+  } else {
+    gridBgRef.current = null;
+  }
+  if (indicatorRef.current) canvas.bringObjectToFront(indicatorRef.current);
+  if (guideRef.current) canvas.bringObjectToFront(guideRef.current);
+  canvas.requestRenderAll();
+}
+
+/* ============================================================================
+ * APPARATUS SIZES — real lab volume/size presets per family.
+ * ==========================================================================*/
+const SIZE_BY_FAMILY = {
+  beaker: { default: "250 mL", options: ["50 mL", "100 mL", "250 mL", "500 mL", "1000 mL"], scales: { "50 mL": 0.62, "100 mL": 0.76, "250 mL": 1, "500 mL": 1.2, "1000 mL": 1.42 } },
+  roundFlask: { default: "250 mL", options: ["50 mL", "100 mL", "250 mL", "500 mL", "1000 mL"], scales: { "50 mL": 0.6, "100 mL": 0.75, "250 mL": 1, "500 mL": 1.18, "1000 mL": 1.38 } },
+  erlenmeyer: { default: "250 mL", options: ["100 mL", "250 mL", "500 mL"], scales: { "100 mL": 0.78, "250 mL": 1, "500 mL": 1.22 } },
+  volumetric: { default: "250 mL", options: ["100 mL", "250 mL", "500 mL", "1000 mL"], scales: { "100 mL": 0.76, "250 mL": 1, "500 mL": 1.18, "1000 mL": 1.35 } },
+  cylinder: { default: "100 mL", options: ["10 mL", "25 mL", "50 mL", "100 mL", "250 mL"], scales: { "10 mL": 0.55, "25 mL": 0.68, "50 mL": 0.82, "100 mL": 1, "250 mL": 1.28 } },
+  burette: { default: "50 mL", options: ["10 mL", "25 mL", "50 mL"], scales: { "10 mL": 0.72, "25 mL": 0.86, "50 mL": 1 } },
+  pipette: { default: "10 mL", options: ["1 mL", "5 mL", "10 mL", "25 mL"], scales: { "1 mL": 0.68, "5 mL": 0.82, "10 mL": 1, "25 mL": 1.2 } },
+  testTube: { default: "medium", options: ["small", "medium", "large"], scales: { small: 0.72, medium: 1, large: 1.28 } },
+  condenser: { default: "medium", options: ["short", "medium", "long"], scales: { short: 0.75, medium: 1, long: 1.35 } },
+  stand: { default: "standard", options: ["small", "standard", "tall"], scales: { small: 0.78, standard: 1, tall: 1.22 } },
+  hotplate: { default: "standard", options: ["compact", "standard", "large"], scales: { compact: 0.8, standard: 1, large: 1.25 } },
+  bath: { default: "medium", options: ["small", "medium", "large"], scales: { small: 0.82, medium: 1, large: 1.2 } },
+};
+const SMART_FAMILY = { stand: "stand", flask: "roundFlask", condenser: "condenser", hotplate: "hotplate", bath: "bath", tubing: "tubing", beaker: "beaker", erlenmeyer: "erlenmeyer", funnel: "funnel", burette: "burette" };
+const PALETTE_ICON = { beaker: "⊔", roundFlask: "◯", erlenmeyer: "△", condenser: "║", funnel: "▽", burette: "│", cylinder: "▯", testTube: "◎", stand: "⊥", hotplate: "▭", bath: "≈", tubing: "∼", burner: "🔥", clamp: "⊢", microscope: "🔬", bottle: "🧪", arrow: "→", box: "◆" };
+
+function sizeCatalogFor(typeKey) {
+  return SIZE_BY_FAMILY[familyFor(typeKey)] || null;
+}
+function defaultSizeFor(typeKey) {
+  return sizeCatalogFor(typeKey)?.default || null;
+}
+function sizeScaleFor(typeKey, sizeLabel) {
+  const cat = sizeCatalogFor(typeKey);
+  if (!cat || !sizeLabel) return 1;
+  return cat.scales[sizeLabel] ?? 1;
+}
+function displayLabel(base, size) {
+  return size ? `${base} ${size}` : base;
+}
+function paletteIconFor(typeKey) {
+  return PALETTE_ICON[familyFor(typeKey)] || "◆";
+}
+
 let _oid = 0;
 const newObjId = () => `o${++_oid}`;
 
@@ -293,6 +357,10 @@ export default function ReactionSetupCanvas() {
   const connectionsRef = useRef([]);
   const pendingRef = useRef(null);
   const indicatorRef = useRef(null);
+  const guideRef = useRef(null);
+  const gridBgRef = useRef(null);
+  const showGuidesRef = useRef(true);
+  const gridOnRef = useRef(true);
 
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -300,6 +368,21 @@ export default function ReactionSetupCanvas() {
   const [sel, setSel] = useState(null);
   const [query, setQuery] = useState("");
   const [openCats, setOpenCats] = useState(() => ({ [categories[0]?.id]: true }));
+  const [showGrid, setShowGrid] = useState(true);
+  const [showGuides, setShowGuides] = useState(true);
+
+  gridOnRef.current = showGrid;
+
+  useEffect(() => {
+    showGuidesRef.current = showGuides;
+  }, [showGuides]);
+
+  useEffect(() => {
+    const c = fcRef.current;
+    const wrap = wrapRef.current;
+    if (!c || !wrap || !ready) return;
+    mountGrid(c, gridBgRef, indicatorRef, guideRef, showGrid, wrap.offsetWidth, wrap.offsetHeight);
+  }, [showGrid, ready]);
 
   /* -------------------------------------------------- init Fabric canvas */
   useEffect(() => {
@@ -307,15 +390,15 @@ export default function ReactionSetupCanvas() {
     const wrap = wrapRef.current;
     if (!el || !wrap) return;
 
-    const canvas = new Canvas(el, { backgroundColor: "#ffffff", preserveObjectStacking: true, selection: true });
+    const canvas = new Canvas(el, { backgroundColor: "#fafbfc", preserveObjectStacking: true, selection: true });
     canvas.setDimensions({ width: wrap.offsetWidth, height: wrap.offsetHeight });
     fcRef.current = canvas;
 
     const indicator = new Circle({
-      radius: 6,
-      fill: "rgba(37,99,235,0.9)",
+      radius: 7,
+      fill: "rgba(13,148,136,0.92)",
       stroke: "#fff",
-      strokeWidth: 2,
+      strokeWidth: 2.5,
       originX: "center",
       originY: "center",
       selectable: false,
@@ -323,8 +406,20 @@ export default function ReactionSetupCanvas() {
       visible: false,
       excludeFromExport: true,
     });
+    const guide = new Line([0, 0, 0, 0], {
+      stroke: "rgba(13,148,136,0.55)",
+      strokeWidth: 1.5,
+      strokeDashArray: [5, 4],
+      selectable: false,
+      evented: false,
+      visible: false,
+      excludeFromExport: true,
+    });
     canvas.add(indicator);
+    canvas.add(guide);
     indicatorRef.current = indicator;
+    guideRef.current = guide;
+    mountGrid(canvas, gridBgRef, indicatorRef, guideRef, gridOnRef.current, wrap.offsetWidth, wrap.offsetHeight);
     setReady(true);
 
     const readActive = () => {
@@ -332,6 +427,7 @@ export default function ReactionSetupCanvas() {
       if (!o) return setSel(null);
       const id = o.meta && o.meta.id;
       const conns = id ? connectionsRef.current.filter((e) => e.a.id === id || e.b.id === id).length : 0;
+      const cat = o.meta?.typeKey ? sizeCatalogFor(o.meta.typeKey) : null;
       setSel({
         type: labelForObject(o),
         x: Math.round(o.left ?? 0),
@@ -342,6 +438,8 @@ export default function ReactionSetupCanvas() {
         id,
         conns,
         connectable: !!(o.meta && o.meta.anchors),
+        size: o.meta?.size || null,
+        sizeOptions: cat?.options || null,
       });
     };
     canvas.on("selection:created", readActive);
@@ -387,9 +485,17 @@ export default function ReactionSetupCanvas() {
         pendingRef.current = snap.conn;
         indicator.set({ left: snap.point.x, top: snap.point.y, visible: true });
         canvas.bringObjectToFront(indicator);
+        if (showGuidesRef.current && guideRef.current) {
+          const myW = anchorsWorld(o).find((x) => x.id === snap.myAnchor);
+          if (myW) {
+            guideRef.current.set({ x1: myW.p.x, y1: myW.p.y, x2: snap.point.x, y2: snap.point.y, visible: true });
+            canvas.bringObjectToFront(guideRef.current);
+          }
+        }
       } else {
         pendingRef.current = null;
         indicator.set({ visible: false });
+        if (guideRef.current) guideRef.current.set({ visible: false });
       }
       cluster.forEach((id) => {
         if (id === o.meta.id) return;
@@ -441,12 +547,13 @@ export default function ReactionSetupCanvas() {
         pendingRef.current = null;
       }
       indicator.set({ visible: false });
+      if (guideRef.current) guideRef.current.set({ visible: false });
       canvas.requestRenderAll();
       readActive();
     });
 
     canvas.on("mouse:wheel", (opt) => {
-      let z = canvas.getZoom() * 0.999 ** opt.e.deltaY;
+      let z = canvas.getZoom() * 0.998 ** opt.e.deltaY;
       z = Math.min(4, Math.max(0.2, z));
       canvas.zoomToPoint(new Point(opt.e.offsetX, opt.e.offsetY), z);
       setZoom(z);
@@ -464,7 +571,7 @@ export default function ReactionSetupCanvas() {
 
     const ro = new ResizeObserver(() => {
       canvas.setDimensions({ width: wrap.offsetWidth, height: wrap.offsetHeight });
-      canvas.requestRenderAll();
+      mountGrid(canvas, gridBgRef, indicatorRef, guideRef, gridOnRef.current, wrap.offsetWidth, wrap.offsetHeight);
     });
     ro.observe(wrap);
 
@@ -507,23 +614,48 @@ export default function ReactionSetupCanvas() {
   // Create a clean Fabric VECTOR apparatus object for any palette item. Every
   // category renders as vector geometry (never a JPEG sticker) with chemistry-
   // aware anchors from its family. Safety/symbol families are free annotations.
-  const placeVectorType = (typeKey, label, { x, y } = {}) => {
+  const placeVectorType = (typeKey, label, { x, y, size } = {}) => {
     const c = fcRef.current;
     if (!c) return null;
+    const cat = sizeCatalogFor(typeKey);
+    const sz = size || cat?.default || null;
+    const sc = sizeScaleFor(typeKey, sz);
     const built = buildVector(typeKey, label);
     const g = new Group(built.parts, { left: x ?? 0, top: y ?? 0, originX: "center", originY: "center", ...SEL, subTargetCheck: false });
-    g.meta = { kind: built.annotation ? "annotation" : "apparatus", label, typeKey, id: newObjId(), anchors: built.anchors, annotation: built.annotation };
+    if (sc !== 1) g.scale(sc);
+    g.meta = {
+      kind: built.annotation ? "annotation" : "apparatus",
+      label: displayLabel(label, sz),
+      baseLabel: label,
+      typeKey,
+      id: newObjId(),
+      anchors: built.anchors,
+      annotation: built.annotation,
+      size: sz,
+    };
     c.add(g);
     return g;
   };
 
-  // Place a single SMART vector apparatus piece with precise anchors.
-  const placeSmart = (piece, { x, y } = {}) => {
+  const placeSmart = (piece, { x, y, size } = {}) => {
     const c = fcRef.current;
     if (!c) return null;
+    const famKey = SMART_FAMILY[piece.id];
+    const cat = famKey ? SIZE_BY_FAMILY[famKey] : null;
+    const sz = size || cat?.default || null;
+    const sc = famKey && sz ? (cat.scales[sz] ?? 1) : 1;
     const built = piece.make();
     const g = new Group(built.parts, { left: x, top: y, originX: "center", originY: "center", ...SEL, subTargetCheck: false });
-    g.meta = { kind: "apparatus", label: piece.label, typeKey: built.typeKey, id: newObjId(), anchors: built.anchors };
+    if (sc !== 1) g.scale(sc);
+    g.meta = {
+      kind: "apparatus",
+      label: displayLabel(piece.label, sz),
+      baseLabel: piece.label,
+      typeKey: built.typeKey,
+      id: newObjId(),
+      anchors: built.anchors,
+      size: sz,
+    };
     c.add(g);
     return g;
   };
@@ -546,10 +678,10 @@ export default function ReactionSetupCanvas() {
       top: y,
       originX: "center",
       originY: "center",
-      fontSize: opts.fontSize || 20,
-      fontFamily: "Inter, Arial, sans-serif",
+      fontSize: opts.fontSize || 18,
+      fontFamily: opts.serif ? "Georgia, 'Times New Roman', serif" : "Inter, Arial, sans-serif",
       fill: opts.fill || T.ink,
-      fontWeight: "600",
+      fontWeight: opts.serif ? "500" : "600",
       editable: true,
       ...SEL,
     });
@@ -575,11 +707,41 @@ export default function ReactionSetupCanvas() {
 
   const clearAll = () => {
     const c = fcRef.current;
-    c.getObjects().filter((o) => o !== indicatorRef.current).forEach((o) => c.remove(o));
+    const keep = new Set([indicatorRef.current, guideRef.current, gridBgRef.current].filter(Boolean));
+    c.getObjects().filter((o) => !keep.has(o)).forEach((o) => c.remove(o));
     connectionsRef.current = [];
     c.discardActiveObject();
     c.requestRenderAll();
     setSel(null);
+  };
+
+  const applySizeToSelected = (newSize) => {
+    const c = fcRef.current;
+    const o = c?.getActiveObject();
+    if (!o?.meta?.typeKey || !newSize) return;
+    const cat = sizeCatalogFor(o.meta.typeKey);
+    if (!cat) return;
+    const oldSc = sizeScaleFor(o.meta.typeKey, o.meta.size || cat.default);
+    const newSc = sizeScaleFor(o.meta.typeKey, newSize);
+    const ratio = newSc / oldSc;
+    o.scale((o.scaleX || 1) * ratio, (o.scaleY || 1) * ratio);
+    o.meta.size = newSize;
+    o.meta.label = displayLabel(o.meta.baseLabel || o.meta.label, newSize);
+    o.setCoords();
+    c.requestRenderAll();
+    const id = o.meta.id;
+    const conns = id ? connectionsRef.current.filter((e) => e.a.id === id || e.b.id === id).length : 0;
+    setSel((s) =>
+      s
+        ? {
+            ...s,
+            size: newSize,
+            type: o.meta.label,
+            w: Math.round(o.getScaledWidth?.() ?? 0),
+            h: Math.round(o.getScaledHeight?.() ?? 0),
+          }
+        : s
+    );
   };
 
   const getAsset = (re) => {
@@ -589,7 +751,7 @@ export default function ReactionSetupCanvas() {
 
   const fitToContent = () => {
     const c = fcRef.current;
-    const objs = c.getObjects().filter((o) => o !== indicatorRef.current && o.meta);
+    const objs = c.getObjects().filter((o) => o !== indicatorRef.current && o !== guideRef.current && o !== gridBgRef.current && o.meta && o.meta.kind !== "grid");
     if (!objs.length) return;
     let minX = Infinity,
       minY = Infinity,
@@ -795,7 +957,6 @@ export default function ReactionSetupCanvas() {
     const benchTop = 600;
     const parts = [];
 
-    vBench(parts, 168, 720, benchTop);
     vStand(parts, standX, 118, benchTop, [
       { x: colX, y: 180 },
       { x: colX, y: 300 },
@@ -814,11 +975,11 @@ export default function ReactionSetupCanvas() {
 
     addRig(parts, "Reflux setup");
 
-    // water in/out arrows + labels beside the condenser side ports
+    addTextAt("Reflux apparatus", colX, 118, { fill: T.muted, fontSize: 15, serif: true });
     fcRef.current.add(blockArrow(colX + 150, c.outY, 78, 0, T.arrow));
-    addTextAt("Water out", colX + 258, c.outY, { fill: T.ink, fontSize: 22 });
+    addTextAt("Water out", colX + 258, c.outY, { fill: T.ink, fontSize: 20, serif: true });
     fcRef.current.add(blockArrow(colX + 150, c.inY, 78, 180, T.arrow));
-    addTextAt("Water in", colX + 258, c.inY, { fill: T.ink, fontSize: 22 });
+    addTextAt("Water in", colX + 258, c.inY, { fill: T.ink, fontSize: 20, serif: true });
   }
 
   function buildDistillation() {
@@ -826,7 +987,6 @@ export default function ReactionSetupCanvas() {
     const benchTop = 600;
     const parts = [];
 
-    vBench(parts, 168, 760, benchTop);
     vStand(parts, 250, 150, benchTop, [
       { x: flaskX, y: 360 },
       { x: 560, y: 250 },
@@ -845,8 +1005,9 @@ export default function ReactionSetupCanvas() {
     vErlenmeyer(parts, 600, 470, 90, 90);
 
     addRig(parts, "Distillation setup");
-    addTextAt("Thermometer", flaskX, 222, { fill: T.muted, fontSize: 15 });
-    addTextAt("Distillate", 600, 540, { fill: T.muted, fontSize: 15 });
+    addTextAt("Simple distillation", flaskX, 210, { fill: T.muted, fontSize: 15, serif: true });
+    addTextAt("Thermometer", flaskX, 222, { fill: T.muted, fontSize: 14, serif: true });
+    addTextAt("Distillate", 600, 540, { fill: T.muted, fontSize: 14, serif: true });
   }
 
   function buildFiltration() {
@@ -854,7 +1015,6 @@ export default function ReactionSetupCanvas() {
     const benchTop = 600;
     const parts = [];
 
-    vBench(parts, 200, 740, benchTop);
     vStand(parts, 280, 150, benchTop, [{ x: cx, y: 300 }]);
     vErlenmeyer(parts, cx, 470, 120, 130);
     vFunnel(parts, cx, 300, 120);
@@ -872,7 +1032,6 @@ export default function ReactionSetupCanvas() {
     const benchTop = 600;
     const parts = [];
 
-    vBench(parts, 200, 740, benchTop);
     vStand(parts, 280, 150, benchTop, [{ x: cx, y: 250 }]);
     vBurette(parts, cx, 200, 220);
     vErlenmeyer(parts, cx, 520, 110, 110);
@@ -888,7 +1047,6 @@ export default function ReactionSetupCanvas() {
     const benchTop = 600;
     const parts = [];
 
-    vBench(parts, 220, 740, benchTop);
     vHotplate(parts, cx, 556);
     vBeaker(parts, cx, 486, 130, 120);
 
@@ -926,6 +1084,9 @@ export default function ReactionSetupCanvas() {
           <Btn onClick={clearAll} disabled={!ready} variant="ghost">Clear</Btn>
           <Btn onClick={exportPNG} disabled={!ready} variant="primary">Export PNG</Btn>
         </div>
+        <div style={styles.tbSep} />
+        <Btn onClick={() => setShowGrid((v) => !v)} disabled={!ready} variant={showGrid ? "primary" : "ghost"}>Grid</Btn>
+        <Btn onClick={() => setShowGuides((v) => !v)} disabled={!ready} variant={showGuides ? "primary" : "ghost"}>Guides</Btn>
         {busy && <span style={styles.busy}>Building…</span>}
       </div>
 
@@ -950,19 +1111,22 @@ export default function ReactionSetupCanvas() {
           <div style={{ ...styles.sideLabel, marginTop: 14 }}>Smart Apparatus</div>
           <div style={styles.smartHint}>Snap together like LEGO</div>
           <div style={styles.smartGrid}>
-            {SMART_PIECES.map((p) => (
+            {SMART_PIECES.map((p) => {
+              const sz = SIZE_BY_FAMILY[SMART_FAMILY[p.id]]?.default;
+              return (
               <div
                 key={p.id}
                 draggable
                 onDragStart={(e) => onSmartDragStart(e, p.id)}
                 onClick={() => addSmartCenter(p)}
-                title={`Add ${p.label}`}
+                title={`Add ${p.label}${sz ? ` (${sz})` : ""}`}
                 style={styles.smartCard}
               >
                 <span style={styles.smartIcon}>{p.icon}</span>
                 <span style={styles.smartLabel}>{p.label}</span>
+                {sz && <span style={styles.paletteSize}>{sz}</span>}
               </div>
-            ))}
+            );})}
           </div>
 
           <div style={{ ...styles.sideLabel, marginTop: 14 }}>Apparatus · {totalAssets}</div>
@@ -979,19 +1143,22 @@ export default function ReactionSetupCanvas() {
                 </button>
                 {open && (
                   <div style={styles.paletteGrid}>
-                    {cat.items.map((item) => (
+                    {cat.items.map((item) => {
+                      const sz = defaultSizeFor(item.typeKey);
+                      return (
                       <div
                         key={item.uid}
                         draggable
                         onDragStart={(e) => onPaletteDragStart(e, item.uid)}
                         onClick={() => addApparatusCenter(item)}
-                        title={`Add ${item.label}`}
+                        title={`Add ${item.label}${sz ? ` (${sz})` : ""}`}
                         style={styles.paletteCard}
                       >
-                        <img src={item.src} alt={item.label} draggable={false} style={styles.paletteThumb} />
+                        <span style={styles.paletteIcon}>{paletteIconFor(item.typeKey)}</span>
                         <span style={styles.paletteLabel}>{item.label}</span>
+                        {sz && <span style={styles.paletteSize}>{sz}</span>}
                       </div>
-                    ))}
+                    );})}
                   </div>
                 )}
               </div>
@@ -1030,7 +1197,7 @@ export default function ReactionSetupCanvas() {
             <IconBtn onClick={fitToContent} wide>Fit</IconBtn>
             <IconBtn onClick={resetView} wide>Reset</IconBtn>
           </div>
-          <div style={styles.canvasHint}>Drag Smart Apparatus together to snap & assemble · Alt-drag to pan · scroll to zoom</div>
+          <div style={styles.canvasHint}>Snap apparatus together to build setups · Alt-drag pan · scroll zoom</div>
         </div>
 
         {/* right inspector */}
@@ -1049,6 +1216,16 @@ export default function ReactionSetupCanvas() {
                 <Field label="Height" value={sel.h} half />
               </div>
               <Field label="Rotation" value={`${sel.angle}°`} />
+              {sel.sizeOptions && (
+                <>
+                  <div style={styles.fieldLabel}>Size</div>
+                  <select style={styles.sizeSelect} value={sel.size || sel.sizeOptions[0]} onChange={(e) => applySizeToSelected(e.target.value)}>
+                    {sel.sizeOptions.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </>
+              )}
               {sel.connectable && <Field label="Connections" value={sel.conns} />}
               {sel.connectable && sel.conns > 0 && <SmallBtn onClick={detachSelected}>Detach connections</SmallBtn>}
               <div style={styles.divider} />
@@ -1082,86 +1259,107 @@ export default function ReactionSetupCanvas() {
  * All coordinates are absolute scene coordinates; pieces are pushed into a
  * `parts` array and grouped into one assembly by the caller.
  * ==========================================================================*/
-const GLASS = { stroke: "#64748b", line: 1.6, fill: "rgba(186,230,253,0.16)" };
-const METAL = { light: "#c2c8cf", mid: "#9aa1a9", dark: "#3f4753", edge: "#6b7280" };
-const WOOD = { top: "#cf954f", body: "#b8763e", edge: "#8a5a2b" };
-const LIQ = "rgba(167,180,252,0.6)";
-const WATER = "rgba(96,165,250,0.28)";
-const CLAMP = "#3b82f6";
+const GLASS = { stroke: "#475569", line: 1.8, fill: "rgba(186,230,253,0.22)", shine: "rgba(255,255,255,0.55)" };
+const METAL = { light: "#d1d5db", mid: "#9ca3af", dark: "#374151", edge: "#6b7280", shine: "rgba(255,255,255,0.35)" };
+const LIQ = "rgba(129,140,248,0.55)";
+const LIQ_SHINE = "rgba(199,210,254,0.35)";
+const WATER = "rgba(56,189,248,0.32)";
+const WATER_DEEP = "rgba(14,165,233,0.18)";
+const CLAMP = "#2563eb";
+const CLAMP_DARK = "#1e40af";
+const SHADOW = "rgba(15,23,42,0.1)";
 
 const rRect = (cx, cy, w, h, o = {}) => new Rect({ left: cx, top: cy, width: w, height: h, originX: "center", originY: "center", ...o });
 const rLine = (pts, o = {}) => new Line(pts, { ...o });
 const rCircle = (cx, cy, r, o = {}) => new Circle({ left: cx, top: cy, radius: r, originX: "center", originY: "center", ...o });
 const rEllipse = (cx, cy, rx, ry, o = {}) => new Ellipse({ left: cx, top: cy, rx, ry, originX: "center", originY: "center", ...o });
 const rPath = (d, o = {}) => new Path(d, { ...o });
+const vDropShadow = (parts, cx, cy, rx, ry) => parts.push(rEllipse(cx, cy, rx, ry, { fill: SHADOW, stroke: "transparent" }));
 
-function vBench(parts, x0, x1, topY) {
-  const w = x1 - x0,
-    cx = (x0 + x1) / 2;
-  parts.push(rRect(cx, topY + 14, w, 26, { fill: WOOD.body, stroke: WOOD.edge, strokeWidth: 1.5, rx: 3 }));
-  parts.push(rRect(cx, topY + 3, w, 7, { fill: WOOD.top, rx: 2 }));
-  parts.push(rRect(x0 + 44, topY + 58, 22, 70, { fill: WOOD.body, stroke: WOOD.edge, strokeWidth: 1.5 }));
-  parts.push(rRect(x1 - 44, topY + 58, 22, 70, { fill: WOOD.body, stroke: WOOD.edge, strokeWidth: 1.5 }));
-}
 function vStand(parts, x, topY, baseY, arms) {
+  vDropShadow(parts, x + 18, baseY + 4, 78, 6);
   parts.push(rRect(x + 18, baseY - 8, 150, 16, { fill: METAL.mid, stroke: METAL.edge, strokeWidth: 1.2, rx: 3 }));
-  parts.push(rRect(x, (topY + baseY) / 2, 12, baseY - topY, { fill: METAL.light, stroke: METAL.edge, strokeWidth: 1.2, rx: 4 }));
+  parts.push(rRect(x + 14, baseY - 10, 8, 6, { fill: METAL.dark, rx: 2 }));
+  parts.push(rRect(x + 22, baseY - 10, 8, 6, { fill: METAL.dark, rx: 2 }));
+  parts.push(rRect(x - 2, (topY + baseY) / 2, 14, baseY - topY, { fill: METAL.light, stroke: METAL.edge, strokeWidth: 1.2, rx: 4 }));
+  parts.push(rRect(x + 2, (topY + baseY) / 2, 4, baseY - topY, { fill: METAL.shine, stroke: "transparent" }));
   (arms || []).forEach((a) => {
     parts.push(rRect((x + a.x) / 2, a.y, Math.abs(a.x - x), 9, { fill: METAL.mid, stroke: METAL.edge, strokeWidth: 1, rx: 3 }));
-    parts.push(rRect(x, a.y, 22, 26, { fill: METAL.dark, rx: 3 }));
+    parts.push(rRect(x, a.y, 24, 28, { fill: METAL.dark, rx: 3 }));
+    parts.push(rCircle(x + 8, a.y, 3, { fill: "#cbd5e1" }));
   });
 }
 function vClamps(parts, positions) {
   (positions || []).forEach((p) => {
-    parts.push(rEllipse(p.x, p.y, 21, 9, { fill: CLAMP, stroke: "#1d4ed8", strokeWidth: 1 }));
-    parts.push(rEllipse(p.x, p.y, 9, 4, { fill: "#bfdbfe" }));
+    parts.push(rEllipse(p.x, p.y, 24, 10, { fill: CLAMP_DARK, stroke: CLAMP, strokeWidth: 1.2 }));
+    parts.push(rEllipse(p.x - 6, p.y, 8, 5, { fill: CLAMP }));
+    parts.push(rEllipse(p.x + 6, p.y, 8, 5, { fill: CLAMP }));
+    parts.push(rEllipse(p.x, p.y, 10, 4, { fill: "#bfdbfe" }));
+    parts.push(rLine([p.x - 14, p.y, p.x + 14, p.y], { stroke: "rgba(255,255,255,0.35)", strokeWidth: 1 }));
   });
 }
 function vRoundFlask(parts, cx, cy, r, neckTopY) {
+  vDropShadow(parts, cx, cy + r + 6, r * 0.85, 6);
   parts.push(rRect(cx, (neckTopY + (cy - r + 8)) / 2, 20, cy - r + 8 - neckTopY, { fill: GLASS.fill, stroke: GLASS.stroke, strokeWidth: GLASS.line }));
+  parts.push(rLine([cx - 8, neckTopY + 8, cx - 8, cy - r + 4], { stroke: GLASS.shine, strokeWidth: 1.2 }));
   parts.push(rCircle(cx, cy, r, { fill: GLASS.fill, stroke: GLASS.stroke, strokeWidth: GLASS.line }));
   const d = 8,
     hw = Math.sqrt(Math.max(0, r * r - d * d));
   parts.push(rPath(`M ${cx - hw} ${cy - d} A ${r} ${r} 0 0 1 ${cx + hw} ${cy - d} Z`, { fill: LIQ, stroke: "transparent" }));
-  parts.push(rLine([cx - hw, cy - d, cx + hw, cy - d], { stroke: "#818cf8", strokeWidth: 1.4 }));
-  parts.push(rEllipse(cx, cy + r * 0.55, 13, 4.5, { fill: "#cbd5e1", stroke: "#94a3b8", strokeWidth: 0.8 }));
+  parts.push(rPath(`M ${cx - hw * 0.7} ${cy - d} Q ${cx} ${cy - d - 3} ${cx + hw * 0.7} ${cy - d}`, { fill: "transparent", stroke: LIQ_SHINE, strokeWidth: 1.2 }));
+  parts.push(rLine([cx - hw, cy - d, cx + hw, cy - d], { stroke: "#6366f1", strokeWidth: 1.5 }));
+  parts.push(rEllipse(cx, cy + r * 0.55, 14, 5, { fill: "#e2e8f0", stroke: "#94a3b8", strokeWidth: 0.8 }));
 }
 function vCondenser(parts, cx, topY, botY) {
-  const w = 36;
+  const w = 38;
+  parts.push(rRect(cx, (topY + botY) / 2, w + 4, botY - topY, { fill: WATER_DEEP, stroke: "transparent", rx: 4 }));
   parts.push(rRect(cx, (topY + botY) / 2, w, botY - topY, { fill: WATER, stroke: GLASS.stroke, strokeWidth: GLASS.line, rx: 3 }));
-  parts.push(rRect(cx, (topY + botY) / 2, 12, botY - topY + 18, { fill: GLASS.fill, stroke: "#94a3b8", strokeWidth: 1 }));
-  parts.push(rRect(cx, topY + 6, 22, 16, { fill: "rgba(186,230,253,0.5)", stroke: GLASS.stroke, strokeWidth: 1 }));
-  parts.push(rRect(cx, botY - 6, 20, 14, { fill: "rgba(186,230,253,0.5)", stroke: GLASS.stroke, strokeWidth: 1 }));
+  parts.push(rRect(cx - 4, (topY + botY) / 2, 3, botY - topY, { fill: "rgba(255,255,255,0.25)", stroke: "transparent" }));
+  parts.push(rRect(cx, (topY + botY) / 2, 12, botY - topY + 18, { fill: GLASS.fill, stroke: "#94a3b8", strokeWidth: 1.2 }));
+  parts.push(rRect(cx, topY + 6, 22, 16, { fill: "rgba(186,230,253,0.55)", stroke: GLASS.stroke, strokeWidth: 1 }));
+  parts.push(rRect(cx, botY - 6, 20, 14, { fill: "rgba(186,230,253,0.55)", stroke: GLASS.stroke, strokeWidth: 1 }));
   const outY = topY + (botY - topY) * 0.3,
     inY = topY + (botY - topY) * 0.66;
-  [outY, inY].forEach((py) => {
-    parts.push(rLine([cx + w / 2 - 2, py, cx + w / 2 + 28, py - 7], { stroke: GLASS.stroke, strokeWidth: 6, strokeLineCap: "round" }));
-    parts.push(rLine([cx + w / 2 - 2, py, cx + w / 2 + 28, py - 7], { stroke: "#e0f2fe", strokeWidth: 2.4, strokeLineCap: "round" }));
+  [
+    { y: outY, label: "out" },
+    { y: inY, label: "in" },
+  ].forEach(({ y }) => {
+    parts.push(rLine([cx + w / 2 - 2, y, cx + w / 2 + 30, y - 8], { stroke: GLASS.stroke, strokeWidth: 7, strokeLineCap: "round" }));
+    parts.push(rLine([cx + w / 2 - 2, y, cx + w / 2 + 30, y - 8], { stroke: "#e0f2fe", strokeWidth: 2.8, strokeLineCap: "round" }));
+    parts.push(rCircle(cx + w / 2 + 30, y - 8, 3.5, { fill: GLASS.fill, stroke: GLASS.stroke, strokeWidth: 1 }));
   });
   return { outY, inY, w };
 }
 function vBentTube(parts, cx, topY) {
   const d = `M ${cx} ${topY} L ${cx} ${topY - 26} Q ${cx} ${topY - 48} ${cx + 26} ${topY - 52} L ${cx + 96} ${topY - 56}`;
+  parts.push(rPath(d, { fill: "", stroke: "rgba(15,23,42,0.12)", strokeWidth: 14, strokeLineCap: "round" }));
   parts.push(rPath(d, { fill: "", stroke: GLASS.stroke, strokeWidth: 11, strokeLineCap: "round" }));
-  parts.push(rPath(d, { fill: "", stroke: "#f1f5f9", strokeWidth: 4.5, strokeLineCap: "round" }));
-  parts.push(new Ellipse({ left: cx + 100, top: topY - 56, rx: 8, ry: 13, angle: 78, originX: "center", originY: "center", fill: "rgba(186,230,253,0.5)", stroke: GLASS.stroke, strokeWidth: 1 }));
+  parts.push(rPath(d, { fill: "", stroke: "#f8fafc", strokeWidth: 4.5, strokeLineCap: "round" }));
+  parts.push(new Ellipse({ left: cx + 100, top: topY - 56, rx: 8, ry: 13, angle: 78, originX: "center", originY: "center", fill: "rgba(186,230,253,0.55)", stroke: GLASS.stroke, strokeWidth: 1 }));
 }
 function vBath(parts, cx, cy, w, h) {
-  parts.push(rRect(cx, cy, w, h, { fill: WATER, stroke: "#93c5fd", strokeWidth: 1.4, rx: 4 }));
-  parts.push(rLine([cx - w / 2 + 6, cy - h / 2 + 12, cx + w / 2 - 6, cy - h / 2 + 12], { stroke: "#60a5fa", strokeWidth: 1.4 }));
+  vDropShadow(parts, cx, cy + h / 2 + 4, w * 0.46, 5);
+  parts.push(rRect(cx, cy, w, h, { fill: WATER, stroke: "#38bdf8", strokeWidth: 1.6, rx: 4 }));
+  parts.push(rRect(cx - w / 2 + 4, cy - h / 2 + 4, 5, h - 8, { fill: "rgba(255,255,255,0.28)", stroke: "transparent", rx: 2 }));
+  parts.push(rLine([cx - w / 2 + 6, cy - h / 2 + 12, cx + w / 2 - 6, cy - h / 2 + 12], { stroke: "#0ea5e9", strokeWidth: 1.6 }));
 }
 function vHotplate(parts, cx, cy) {
-  parts.push(rRect(cx, cy, 180, 38, { fill: "#e5e7eb", stroke: METAL.edge, strokeWidth: 1.2, rx: 8 }));
+  vDropShadow(parts, cx, cy + 22, 96, 6);
+  parts.push(rRect(cx, cy, 180, 38, { fill: "#f3f4f6", stroke: METAL.edge, strokeWidth: 1.2, rx: 8 }));
+  parts.push(rRect(cx - 60, cy - 4, 50, 8, { fill: METAL.shine, stroke: "transparent", rx: 3 }));
   parts.push(rEllipse(cx - 14, cy - 20, 66, 9, { fill: "#d1d5db", stroke: METAL.edge, strokeWidth: 1 }));
   parts.push(rRect(cx, cy + 24, 196, 14, { fill: METAL.mid, stroke: METAL.edge, strokeWidth: 1, rx: 3 }));
-  parts.push(rCircle(cx - 66, cy, 3.5, { fill: "#ef4444" }));
-  parts.push(rCircle(cx + 70, cy, 10, { fill: "#f3f4f6", stroke: METAL.edge, strokeWidth: 1.2 }));
+  parts.push(rCircle(cx - 66, cy, 4, { fill: "#ef4444", stroke: "#b91c1c", strokeWidth: 0.8 }));
+  parts.push(rCircle(cx + 70, cy, 11, { fill: "#f9fafb", stroke: METAL.edge, strokeWidth: 1.2 }));
+  parts.push(rCircle(cx + 70, cy, 4, { fill: METAL.mid }));
 }
 function vBeaker(parts, cx, cy, w, h) {
+  vDropShadow(parts, cx, cy + h / 2 + 4, w * 0.44, 5);
   parts.push(rRect(cx, cy, w, h, { fill: GLASS.fill, stroke: GLASS.stroke, strokeWidth: GLASS.line, rx: 3 }));
+  parts.push(rLine([cx - w / 2 + 4, cy - h / 2 + 8, cx - w / 2 + 4, cy + h / 2 - 6], { stroke: GLASS.shine, strokeWidth: 1.2 }));
   parts.push(rLine([cx - w / 2, cy - h / 2, cx - w / 2 - 9, cy - h / 2 + 7], { stroke: GLASS.stroke, strokeWidth: GLASS.line }));
   parts.push(rRect(cx, cy + h * 0.16, w - 6, h * 0.62, { fill: LIQ }));
-  parts.push(rLine([cx - w / 2 + 3, cy - h * 0.15, cx + w / 2 - 3, cy - h * 0.15], { stroke: "#818cf8", strokeWidth: 1.2 }));
+  parts.push(rLine([cx - w / 2 + 3, cy - h * 0.15, cx + w / 2 - 3, cy - h * 0.15], { stroke: "#6366f1", strokeWidth: 1.3 }));
 }
 function vErlenmeyer(parts, cx, cy, w, h) {
   const t = h / 2;
@@ -1219,8 +1417,11 @@ function blockArrow(cx, cy, len, dirDeg, color) {
 
 function vTube(parts, x1, y1, x2, y2) {
   const d = `M ${x1} ${y1} C ${(x1 + x2) / 2} ${y1 - 26}, ${(x1 + x2) / 2} ${y2 + 26}, ${x2} ${y2}`;
+  parts.push(rPath(d, { fill: "", stroke: "rgba(15,23,42,0.1)", strokeWidth: 14, strokeLineCap: "round" }));
   parts.push(rPath(d, { fill: "", stroke: GLASS.stroke, strokeWidth: 11, strokeLineCap: "round" }));
-  parts.push(rPath(d, { fill: "", stroke: "#e2e8f0", strokeWidth: 4.5, strokeLineCap: "round" }));
+  parts.push(rPath(d, { fill: "", stroke: "#f8fafc", strokeWidth: 4.5, strokeLineCap: "round" }));
+  parts.push(rCircle(x1, y1, 3.5, { fill: GLASS.fill, stroke: GLASS.stroke, strokeWidth: 1 }));
+  parts.push(rCircle(x2, y2, 3.5, { fill: GLASS.fill, stroke: GLASS.stroke, strokeWidth: 1 }));
 }
 
 /* ============================================================================
@@ -1940,6 +2141,7 @@ const styles = {
   toolbar: { display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: T.panel, borderBottom: `1px solid ${T.border}` },
   brand: { fontSize: 14, fontWeight: 800, marginRight: 10 },
   tbGroup: { display: "flex", alignItems: "center", gap: 6 },
+  tbSep: { width: 1, height: 22, background: T.border, margin: "0 4px" },
   tbBtn: { padding: "6px 12px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" },
   busy: { marginLeft: 10, fontSize: 12, fontWeight: 600, color: T.teal },
 
@@ -1965,13 +2167,14 @@ const styles = {
   caret: { fontSize: 10, color: T.muted, width: 10 },
   catCount: { marginLeft: "auto", fontSize: 10.5, fontWeight: 700, color: T.muted },
   paletteGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, padding: "8px 0 2px" },
-  paletteCard: { display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: 5, background: "#fff", border: `1px solid ${T.border}`, borderRadius: 8, cursor: "grab", userSelect: "none" },
-  paletteThumb: { width: "100%", height: 42, objectFit: "contain", borderRadius: 4, pointerEvents: "none" },
+  paletteCard: { display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "7px 4px", background: "#fff", border: `1px solid ${T.border}`, borderRadius: 8, cursor: "grab", userSelect: "none" },
+  paletteIcon: { fontSize: 20, lineHeight: 1, color: T.teal, marginBottom: 2 },
   paletteLabel: { fontSize: 10, fontWeight: 600, color: T.text, textAlign: "center", lineHeight: 1.1, wordBreak: "break-word" },
+  paletteSize: { fontSize: 9, fontWeight: 600, color: T.muted },
   chips: { display: "flex", flexWrap: "wrap", gap: 6 },
   chip: { fontSize: 11, fontWeight: 600, color: T.teal, background: T.tealSoft, border: "1px solid #99f6e4", borderRadius: 14, padding: "4px 9px", cursor: "pointer" },
 
-  canvasWrap: { position: "relative", flex: 1, minWidth: 0, background: "#ffffff", overflow: "hidden" },
+  canvasWrap: { position: "relative", flex: 1, minWidth: 0, background: "#fafbfc", overflow: "hidden" },
   zoomBar: { position: "absolute", top: 12, right: 12, display: "flex", alignItems: "center", gap: 4, background: "#fff", border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, boxShadow: T.shadow },
   zoomLabel: { fontSize: 11.5, fontWeight: 700, color: T.muted, minWidth: 38, textAlign: "center" },
   iconBtn: { height: 26, borderRadius: 7, border: `1px solid ${T.border}`, background: "#fff", color: T.text, fontSize: 13, fontWeight: 700, cursor: "pointer" },
@@ -1982,6 +2185,7 @@ const styles = {
   row: { display: "flex", gap: 10 },
   fieldLabel: { fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: T.muted, marginBottom: 3 },
   fieldValue: { fontSize: 13, color: T.text, background: T.appBg, borderRadius: 6, padding: "5px 8px" },
+  sizeSelect: { width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5, fontWeight: 600, color: T.text, background: "#fff", marginBottom: 4 },
   divider: { height: 1, background: T.border, margin: "2px 0" },
   smallBtn: { flex: 1, padding: "7px 8px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" },
 };
