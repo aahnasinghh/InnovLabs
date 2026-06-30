@@ -33,6 +33,9 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, Textbox, Line, Triangle, Group, Circle, Rect, Ellipse, Polygon, Path, Point, util } from "fabric";
+import TemplateGallery from "./TemplateGallery";
+import { TEMPLATE_GROUPS } from "../templates/templates";
+import { makeApi, setLiquidColor, setLiquidLevel, setGlassColor, setStrokeColor, setArrowColor, arrowColorOf, hasGlass, hasOutline } from "../templates/labKit";
 
 /* ============================================================================
  * ASSET DISCOVERY
@@ -370,6 +373,7 @@ export default function ReactionSetupCanvas() {
   const [openCats, setOpenCats] = useState(() => ({ [categories[0]?.id]: true }));
   const [showGrid, setShowGrid] = useState(true);
   const [showGuides, setShowGuides] = useState(true);
+  const [galleryOpen, setGalleryOpen] = useState(false);
 
   gridOnRef.current = showGrid;
 
@@ -422,26 +426,7 @@ export default function ReactionSetupCanvas() {
     mountGrid(canvas, gridBgRef, indicatorRef, guideRef, gridOnRef.current, wrap.offsetWidth, wrap.offsetHeight);
     setReady(true);
 
-    const readActive = () => {
-      const o = canvas.getActiveObject();
-      if (!o) return setSel(null);
-      const id = o.meta && o.meta.id;
-      const conns = id ? connectionsRef.current.filter((e) => e.a.id === id || e.b.id === id).length : 0;
-      const cat = o.meta?.typeKey ? sizeCatalogFor(o.meta.typeKey) : null;
-      setSel({
-        type: labelForObject(o),
-        x: Math.round(o.left ?? 0),
-        y: Math.round(o.top ?? 0),
-        w: Math.round(o.getScaledWidth?.() ?? o.width ?? 0),
-        h: Math.round(o.getScaledHeight?.() ?? o.height ?? 0),
-        angle: Math.round(o.angle ?? 0),
-        id,
-        conns,
-        connectable: !!(o.meta && o.meta.anchors),
-        size: o.meta?.size || null,
-        sizeOptions: cat?.options || null,
-      });
-    };
+    const readActive = () => setSel(describe(canvas.getActiveObject(), connectionsRef.current));
     canvas.on("selection:created", readActive);
     canvas.on("selection:updated", readActive);
     canvas.on("selection:cleared", () => setSel(null));
@@ -718,11 +703,11 @@ export default function ReactionSetupCanvas() {
   const applySizeToSelected = (newSize) => {
     const c = fcRef.current;
     const o = c?.getActiveObject();
-    if (!o?.meta?.typeKey || !newSize) return;
-    const cat = sizeCatalogFor(o.meta.typeKey);
+    if (!o?.meta || !newSize) return;
+    const cat = o.meta.sizeCat || (o.meta.typeKey ? sizeCatalogFor(o.meta.typeKey) : null);
     if (!cat) return;
-    const oldSc = sizeScaleFor(o.meta.typeKey, o.meta.size || cat.default);
-    const newSc = sizeScaleFor(o.meta.typeKey, newSize);
+    const oldSc = cat.scales[o.meta.size || cat.default] ?? 1;
+    const newSc = cat.scales[newSize] ?? 1;
     const ratio = newSc / oldSc;
     o.scale((o.scaleX || 1) * ratio, (o.scaleY || 1) * ratio);
     o.meta.size = newSize;
@@ -747,6 +732,66 @@ export default function ReactionSetupCanvas() {
   const getAsset = (re) => {
     for (const cat of categories) for (const it of cat.items) if (re.test(it.typeKey)) return it;
     return null;
+  };
+
+  /* -------------------------------------------------- live component editing */
+  // Re-read the active object into the inspector view-model after a mutation.
+  const refreshSel = () => {
+    const c = fcRef.current;
+    if (!c) return;
+    setSel(describe(c.getActiveObject(), connectionsRef.current));
+  };
+  const mutSel = (fn) => {
+    const c = fcRef.current;
+    const o = c?.getActiveObject();
+    if (!o) return;
+    fn(c, o);
+    o.setCoords();
+    c.requestRenderAll();
+    refreshSel();
+  };
+  const applyName = (v) =>
+    mutSel((c, o) => {
+      if (o.type === "textbox") o.set("text", v);
+      if (o.meta) {
+        o.meta.baseLabel = v;
+        o.meta.label = o.meta.size ? `${v} ${o.meta.size}` : v;
+      }
+    });
+  const applyOpacity = (v) => mutSel((c, o) => o.set("opacity", v));
+  const applyRotation = (v) => mutSel((c, o) => o.rotate(v));
+  const applyLiquidColorH = (v) => mutSel((c, o) => setLiquidColor(o, v));
+  const applyLiquidLevelH = (v) => mutSel((c, o) => setLiquidLevel(o, v / 100));
+  const applyGlassColorH = (v) => mutSel((c, o) => setGlassColor(o, v));
+  const applyStrokeColorH = (v) => mutSel((c, o) => setStrokeColor(o, v));
+  const applyArrowColorH = (v) => mutSel((c, o) => setArrowColor(o, v));
+  const applyTemp = (v) => mutSel((c, o) => o.meta && (o.meta.temp = v));
+  const applyTime = (v) => mutSel((c, o) => o.meta && (o.meta.time = v));
+  const applyNotes = (v) => mutSel((c, o) => o.meta && (o.meta.notes = v));
+  const applyFontSize = (v) => mutSel((c, o) => o.set("fontSize", v));
+  const applyTextColor = (v) => mutSel((c, o) => o.set("fill", v));
+
+  /* -------------------------------------------------- gallery template load */
+  // Build a gallery setup as MANY individually selectable, editable objects
+  // (unlike the legacy one-group rigs), so each component can be clicked/edited.
+  const loadTemplate = async (tpl) => {
+    const c = fcRef.current;
+    if (!c || busy) return;
+    const hasObjs = c.getObjects().some((o) => o.meta && o.meta.kind && o.meta.kind !== "grid");
+    if (hasObjs && !window.confirm(`Replace the current canvas with the “${tpl.name}” setup?`)) return;
+    setBusy(true);
+    try {
+      clearAll();
+      const api = makeApi(c, { connections: connectionsRef.current });
+      tpl.build(api);
+      c.requestRenderAll();
+      fitToContent();
+    } catch (err) {
+      console.error("[Gallery] load failed:", err);
+    } finally {
+      setBusy(false);
+      setGalleryOpen(false);
+    }
   };
 
   const fitToContent = () => {
@@ -1079,6 +1124,8 @@ export default function ReactionSetupCanvas() {
       <div style={styles.toolbar}>
         <span style={styles.brand}>⚗ Reaction Setup Designer</span>
         <div style={styles.tbGroup}>
+          <Btn onClick={() => setGalleryOpen(true)} disabled={!ready} variant="primary">⊞ Setup Gallery</Btn>
+          <div style={styles.tbSep} />
           <Btn onClick={addText} disabled={!ready}>Add Text</Btn>
           <Btn onClick={addArrow} disabled={!ready}>Add Arrow</Btn>
           <Btn onClick={clearAll} disabled={!ready} variant="ghost">Clear</Btn>
@@ -1094,7 +1141,10 @@ export default function ReactionSetupCanvas() {
       <div style={styles.body}>
         {/* left sidebar */}
         <aside style={styles.palette}>
-          <div style={styles.sideLabel}>Templates</div>
+          <button style={styles.galleryBtn} onClick={() => setGalleryOpen(true)} disabled={!ready}>
+            ⊞ Browse Setup Gallery <span style={styles.galleryBtnCount}>30</span>
+          </button>
+          <div style={{ ...styles.sideLabel, marginTop: 14 }}>Quick Templates</div>
           <div style={styles.templateList}>
             {TEMPLATES.map((tpl) => (
               <button
@@ -1207,6 +1257,13 @@ export default function ReactionSetupCanvas() {
           {sel && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <Field label="Type" value={sel.type} />
+
+              {sel.isText ? (
+                <LiveInput key={`text-${sel.id}`} label="Text" value={sel.textValue} onChange={applyName} textarea />
+              ) : (
+                <LiveInput key={`name-${sel.id}`} label="Name" value={sel.name} onChange={applyName} />
+              )}
+
               <div style={styles.row}>
                 <Field label="X" value={sel.x} half />
                 <Field label="Y" value={sel.y} half />
@@ -1215,17 +1272,48 @@ export default function ReactionSetupCanvas() {
                 <Field label="Width" value={sel.w} half />
                 <Field label="Height" value={sel.h} half />
               </div>
-              <Field label="Rotation" value={`${sel.angle}°`} />
+
               {sel.sizeOptions && (
-                <>
-                  <div style={styles.fieldLabel}>Size</div>
+                <div>
+                  <div style={styles.fieldLabel}>Size · Volume</div>
                   <select style={styles.sizeSelect} value={sel.size || sel.sizeOptions[0]} onChange={(e) => applySizeToSelected(e.target.value)}>
                     {sel.sizeOptions.map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+                </div>
+              )}
+
+              <Slider label={`Rotation · ${sel.angle}°`} min={0} max={360} value={sel.angle} onChange={applyRotation} />
+              <Slider label={`Opacity · ${Math.round(sel.opacity * 100)}%`} min={0} max={100} value={Math.round(sel.opacity * 100)} onChange={(v) => applyOpacity(v / 100)} />
+
+              {sel.hasLiquid && (
+                <>
+                  <div style={styles.divider} />
+                  <ColorRow label="Liquid color" value={sel.liquidColor} onChange={applyLiquidColorH} />
+                  <Slider label={`Liquid fill · ${sel.liquidLevel}%`} min={0} max={100} value={sel.liquidLevel} onChange={applyLiquidLevelH} accent="#818cf8" />
                 </>
               )}
+              {sel.hasGlass && <ColorRow label="Body / glass tint" value={sel.glassColor} onChange={applyGlassColorH} />}
+              {sel.hasOutline && <ColorRow label="Stroke color" value={sel.strokeColor} onChange={applyStrokeColorH} />}
+
+              {sel.isText && (
+                <>
+                  <Slider label={`Font size · ${sel.fontSize}`} min={8} max={64} value={sel.fontSize} onChange={applyFontSize} />
+                  <ColorRow label="Text color" value={sel.textColor} onChange={applyTextColor} />
+                </>
+              )}
+              {sel.isArrow && <ColorRow label="Arrow color" value={sel.arrowColor} onChange={applyArrowColorH} />}
+
+              {sel.kind === "apparatus" && (
+                <>
+                  <div style={styles.divider} />
+                  <LiveInput key={`temp-${sel.id}`} label="Temperature" value={sel.temp} onChange={applyTemp} placeholder="e.g. 80 °C" />
+                  <LiveInput key={`time-${sel.id}`} label="Time" value={sel.time} onChange={applyTime} placeholder="e.g. 2–24 h" />
+                  <LiveInput key={`notes-${sel.id}`} label="Notes" value={sel.notes} onChange={applyNotes} placeholder="Reagents, observations…" textarea />
+                </>
+              )}
+
               {sel.connectable && <Field label="Connections" value={sel.conns} />}
               {sel.connectable && sel.conns > 0 && <SmallBtn onClick={detachSelected}>Detach connections</SmallBtn>}
               <div style={styles.divider} />
@@ -1250,6 +1338,8 @@ export default function ReactionSetupCanvas() {
           */}
         </aside>
       </div>
+
+      <TemplateGallery open={galleryOpen} onClose={() => setGalleryOpen(false)} onLoad={loadTemplate} groups={TEMPLATE_GROUPS} />
     </section>
   );
 }
@@ -2066,6 +2156,49 @@ function labelForObject(o) {
   const map = { textbox: "Text Label", image: "Apparatus", group: "Arrow", line: "Line" };
   return map[o.type] || o.type;
 }
+// Build the inspector view-model for a selected object. Shared by the canvas
+// selection handlers and the inspector's live-edit handlers so both stay in sync.
+function describe(o, connections) {
+  if (!o) return null;
+  const m = o.meta || {};
+  const id = m.id;
+  const conns = id ? connections.filter((e) => e.a.id === id || e.b.id === id).length : 0;
+  const cat = m.sizeCat || (m.typeKey ? sizeCatalogFor(m.typeKey) : null);
+  const ed = m.editable || null;
+  const isText = o.type === "textbox";
+  return {
+    type: labelForObject(o),
+    x: Math.round(o.left ?? 0),
+    y: Math.round(o.top ?? 0),
+    w: Math.round(o.getScaledWidth?.() ?? o.width ?? 0),
+    h: Math.round(o.getScaledHeight?.() ?? o.height ?? 0),
+    angle: Math.round(o.angle ?? 0),
+    id,
+    conns,
+    connectable: !!(m && m.anchors),
+    size: m.size || null,
+    sizeOptions: cat?.options || null,
+    kind: m.kind || o.type,
+    name: m.baseLabel || m.label || "",
+    opacity: o.opacity ?? 1,
+    hasLiquid: !!(ed && ed.liquid),
+    liquidColor: ed?.liquidColor || "#818cf8",
+    liquidLevel: Math.round((ed?.liquidLevel ?? 0) * 100),
+    hasGlass: hasGlass(o),
+    glassColor: ed?.glassColor || "#bae6fd",
+    hasOutline: hasOutline(o),
+    strokeColor: ed?.strokeColor || "#475569",
+    temp: m.temp || "",
+    time: m.time || "",
+    notes: m.notes || "",
+    isText,
+    textValue: isText ? o.text : "",
+    fontSize: Math.round(o.fontSize || 16),
+    textColor: typeof o.fill === "string" ? o.fill : "#0f172a",
+    isArrow: m.kind === "arrow",
+    arrowColor: arrowColorOf(o),
+  };
+}
 function removeActive(canvas, connectionsRef) {
   const objs = canvas.getActiveObjects();
   const ids = objs.map((o) => o.meta && o.meta.id).filter(Boolean);
@@ -2115,6 +2248,49 @@ function Field({ label, value, half }) {
     <div style={{ flex: half ? 1 : "none" }}>
       <div style={styles.fieldLabel}>{label}</div>
       <div style={styles.fieldValue}>{value}</div>
+    </div>
+  );
+}
+// Text/textarea field with local state (seeded per selection via `key`) so the
+// cursor stays put while edits stream live to the canvas object.
+function LiveInput({ label, value, onChange, placeholder, textarea }) {
+  const [v, setV] = useState(value ?? "");
+  useEffect(() => {
+    setV(value ?? "");
+  }, [value]);
+  const handle = (e) => {
+    setV(e.target.value);
+    onChange(e.target.value);
+  };
+  return (
+    <div>
+      <div style={styles.fieldLabel}>{label}</div>
+      {textarea ? (
+        <textarea style={styles.textarea} value={v} placeholder={placeholder} onChange={handle} rows={2} />
+      ) : (
+        <input style={styles.textInput} value={v} placeholder={placeholder} onChange={handle} />
+      )}
+    </div>
+  );
+}
+function Slider({ label, min, max, value, onChange, accent }) {
+  return (
+    <div>
+      <div style={styles.fieldLabel}>{label}</div>
+      <input type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ ...styles.range, accentColor: accent || "#0d9488" }} />
+    </div>
+  );
+}
+function toHexColor(c) {
+  if (typeof c === "string" && /^#[0-9a-fA-F]{6}$/.test(c)) return c;
+  if (typeof c === "string" && /^#[0-9a-fA-F]{3}$/.test(c)) return "#" + c.slice(1).split("").map((x) => x + x).join("");
+  return "#475569";
+}
+function ColorRow({ label, value, onChange }) {
+  return (
+    <div style={styles.colorRow}>
+      <span style={styles.colorRowLabel}>{label}</span>
+      <input type="color" value={toHexColor(value)} onChange={(e) => onChange(e.target.value)} style={styles.colorInput} />
     </div>
   );
 }
@@ -2188,4 +2364,13 @@ const styles = {
   sizeSelect: { width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5, fontWeight: 600, color: T.text, background: "#fff", marginBottom: 4 },
   divider: { height: 1, background: T.border, margin: "2px 0" },
   smallBtn: { flex: 1, padding: "7px 8px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" },
+
+  galleryBtn: { width: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 12px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: "#fff", background: T.teal, border: `1px solid ${T.teal}`, cursor: "pointer", boxShadow: T.shadow },
+  galleryBtnCount: { fontSize: 11, fontWeight: 800, color: T.teal, background: "#fff", borderRadius: 12, padding: "1px 7px" },
+  textInput: { width: "100%", boxSizing: "border-box", padding: "7px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5, color: T.text, outline: "none", fontFamily: "inherit" },
+  textarea: { width: "100%", boxSizing: "border-box", padding: "7px 9px", borderRadius: 6, border: `1px solid ${T.border}`, fontSize: 12.5, color: T.text, outline: "none", resize: "vertical", fontFamily: "inherit" },
+  range: { width: "100%", cursor: "pointer" },
+  colorRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  colorRowLabel: { fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: T.muted },
+  colorInput: { width: 38, height: 26, padding: 0, border: `1px solid ${T.border}`, borderRadius: 6, background: "#fff", cursor: "pointer" },
 };
